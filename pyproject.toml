@@ -1,0 +1,7 @@
+[project]
+name = "mhw-rag"
+version = "0.1.0"
+description = "The the the code repository for the marine heatwave retrieval augmented generation (RAG)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
