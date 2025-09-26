@@ -187,6 +187,7 @@ Desktop.ini
 logs/
 
 # Database files
+chroma_db/
 *.db
 *.sqlite
 *.sqlite3

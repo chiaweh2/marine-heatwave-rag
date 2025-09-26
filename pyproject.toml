@@ -6,5 +6,12 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.13.5",
+    "chromadb>=1.1.0",
+    "langchain>=0.3.27",
+    "langchain-chroma>=0.1.2",
+    "langchain-community>=0.3.29",
+    "langchain-ollama>=0.3.8",
+    "libmagic>=1.0",
     "requests>=2.32.5",
+    "unstructured[md]>=0.18.15",
 ]
