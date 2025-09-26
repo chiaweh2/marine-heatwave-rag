@@ -64,8 +64,6 @@ def cache_query_answer_template(
     """
 
 
-
-
 def main(LLM_EMBEDDING_MODEL:str):
     """
     Interactive RAG query system that allows continuous questioning.
