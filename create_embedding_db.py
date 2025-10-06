@@ -1,32 +1,47 @@
 """
 Create an embedding database from all the marine heatwave discussions.
-"""
 
+Note: need to improve if additional discussions are added in the future.
+try avoid re-creating the entire database if only a few new documents are added.
+vector ids should be added accordingly so when adding new documents,
+the existing vectors/embeddings do not need to be re-created.
+"""
 
 import logging
 import os
+from pathlib import Path
 import shutil
 from datetime import datetime
 from langchain_community.document_loaders import DirectoryLoader
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-# from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 
+def setup_logging(debug: bool=False) -> logging.Logger:
+    """Setup logging to both console and file
+    Create a logs folder if not exists.
+    Create a log file with the script name and timestamp in the logs folder.
 
-# set up logging and formatting of timestamp
-def setup_logging():
-    """Setup logging to both console and file"""
-    # Create logs directory if it doesn't exist
-    from pathlib import Path
+    Parameters
+    ----------
+    debug : bool, optional
+        Whether to enable debug logging, by default False
+    Returns
+    -------
+    logging.Logger
+        The configured logger instance.
+    """
 
     # create logs directory if not exists
-    Path('logs').mkdir(exist_ok=True)
+    os.makedirs('logs', exist_ok=True)
 
     # Create logger
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+    if debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
 
     # Clear any existing handlers
     logger.handlers.clear()
@@ -39,7 +54,10 @@ def setup_logging():
 
     # Console handler (for terminal output)
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    if debug:
+        console_handler.setLevel(logging.DEBUG)
+    else:
+        console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
@@ -47,18 +65,16 @@ def setup_logging():
     script_name = Path(__file__).stem  # Gets filename without .py extension
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_filename = f'logs/{script_name}_{timestamp}.log'
-    
+
     file_handler = logging.FileHandler(log_filename)
-    file_handler.setLevel(logging.INFO)
+    if debug:
+        file_handler.setLevel(logging.DEBUG)
+    else:
+        file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
-    
-    logger.info(f"Logging initialized - console + file: {log_filename}")
+
     return logger
-
-
-# Initialize logging
-logger = setup_logging()
 
 def load_documents() -> list[Document]:
     """Load markdown documents from the data directory.
@@ -70,10 +86,8 @@ def load_documents() -> list[Document]:
     list
         A list of loaded documents.
     """
-    logger.info("Loading documents from data/ directory...")
     loader = DirectoryLoader('data/', glob='*.md')
     documents = loader.load()
-    logger.info(f"Loaded {len(documents)} documents")
     return documents
 
 def document_chunking(documents: list[Document]) -> list[Document]:
@@ -92,7 +106,6 @@ def document_chunking(documents: list[Document]) -> list[Document]:
     list
         A list of document chunks.
     """
-    logger.info(f"Chunking {len(documents)} documents...")
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=100,
@@ -100,11 +113,27 @@ def document_chunking(documents: list[Document]) -> list[Document]:
         add_start_index=True,
     )
     chunks = text_splitter.split_documents(documents)
-    logger.info(f"Created {len(chunks)} chunks from {len(documents)} documents")
     return chunks
 
-def create_embedding_db(chunks: list[Document], LLM_EMBEDDING_MODEL: str, CHROMA_PATH: str='chroma_db'):
-    """Create an embedding database from the document chunks.
+def embedding_model():
+    """Initialize the embedding model.
+    This function should be used for creating the 
+    embedding vector database and also used for 
+    creating the query embedding in rag_prompt.py
+
+    Returns
+    -------
+    OllamaEmbeddings
+        The initialized embedding model.
+    """
+    embeddings = OllamaEmbeddings(model='nomic-embed-text')
+    return embeddings
+
+def create_embedding_db(
+    chunks: list[Document],
+    chroma_path: str='chroma_db'
+) -> None:
+    """Create an embedding vectorstore database from the document chunks.
     Using the Chroma vector store from langchain.
     https://python.langchain.com/docs/integrations/text_embedding/
 
@@ -112,46 +141,57 @@ def create_embedding_db(chunks: list[Document], LLM_EMBEDDING_MODEL: str, CHROMA
     ----------
     chunks : list
         A list of document chunks.
+    chroma_path : str, optional
+        Path to save the Chroma embedding database, by default 'chroma_db'
+
+    Returns
+    -------
+    None
+
     """
-    logger.info(f"Creating embedding database at {CHROMA_PATH}...")
-
-    # clean up the database if exists
-    if os.path.exists(CHROMA_PATH):
-        logger.info(f"Existing database found at {CHROMA_PATH}, cleaning up...")
-        # Note: Need to delete before creating to avoid conflicts
-        shutil.rmtree(CHROMA_PATH)
-        logger.info(f"Deleted existing database at {CHROMA_PATH}")
-
-    logger.info("Initializing embeddings model...")
-    embeddings = OllamaEmbeddings(model=LLM_EMBEDDING_MODEL)
-
-    logger.info(f"Creating Chroma database with {len(chunks)} chunks...")
-    db = Chroma.from_documents(
-        chunks,
-        embeddings,
-        collection_name="marine_heatwave_discussions",
-        persist_directory=CHROMA_PATH)
+    embeddings = embedding_model()
 
     # Note: persist() method is no longer needed in newer langchain-chroma versions
     # The database is automatically persisted when persist_directory is specified
-    logger.info(f"Embedding database created and persisted at {CHROMA_PATH}")
+    _ = Chroma.from_documents(
+        chunks,
+        embeddings,
+        collection_name="marine_heatwave_discussions",
+        persist_directory=chroma_path)
 
-def main(CHROMA_PATH: str,LLM_EMBEDDING_MODEL:str):
-    logger.info("Starting marine heatwave embedding database creation...")
+def main(chroma_path: str):
+    """
+    Main function to create marine heatwave embedding database.
+    """
+    # Initialize logging
+    logger_embedding = setup_logging()
+    logger_embedding.info("Starting marine heatwave embedding database creation...")
 
-    # load the documents
+    # Load the documents
+    logger_embedding.info("Loading documents from data/ directory...")
     documents = load_documents()
+    logger_embedding.info("Loaded %d documents", len(documents))
 
-    # split the documents into chunks
+    # Split the documents into chunks
+    logger_embedding.info("Chunking %d documents...", len(documents))
     chunks = document_chunking(documents)
+    logger_embedding.info("Created %d chunks from %d documents", len(chunks), len(documents))
 
-    # create the embedding database
-    create_embedding_db(chunks, LLM_EMBEDDING_MODEL, CHROMA_PATH)
+    # Create the embedding database
+    logger_embedding.info("Creating embedding database at %s...", chroma_path)
+    if os.path.exists(chroma_path):
+        logger_embedding.info("Existing database found at %s, cleaning up...", chroma_path)
+        shutil.rmtree(chroma_path)
+        logger_embedding.info("Deleted existing database at %s", chroma_path)
+    logger_embedding.info("Initializing embeddings model...")
+    logger_embedding.info("Creating Chroma database with %d chunks...", len(chunks))
 
-    logger.info("Marine heatwave embedding database creation completed successfully!")
+    create_embedding_db(chunks, chroma_path)
+
+    logger_embedding.info("Embedding database created and persisted at %s", chroma_path)
+    logger_embedding.info("Marine heatwave embedding database creation completed successfully!")
 
 if __name__ == "__main__":
     # define the chroma database path
     CHROMA_PATH = 'chroma_db'
-    LLM_EMBEDDING_MODEL = 'nomic-embed-text'
-    main(CHROMA_PATH,LLM_EMBEDDING_MODEL)
+    main(CHROMA_PATH)

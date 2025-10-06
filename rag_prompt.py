@@ -1,8 +1,16 @@
+"""
+This script is the executable for the RAG query system.
+It allows continuous questioning and maintains chat history.
+
+Note: The history chat logic need to be improved and output 
+for future reference.
+"""
+
 from datetime import datetime
 import argparse
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import OllamaLLM
+from create_embedding_db import embedding_model
 
 
 def rag_query_template(
@@ -12,31 +20,38 @@ def rag_query_template(
 ) -> str:
     """
     RAG query template to combine the retrieved context with the user query.
+
     Parameters
     ----------
     rag_context : str
         The context retrieved from the embedding database.
     user_query : str
         The user query.
+    cached_chat_history : str, optional
+        The cached chat history, by default ''.
+
     Returns
     -------
     str
         The combined prompt for the LLM.
     """
-    return f"""You are a knowledgeable assistant.
-    Use the following context and previous cached chat history to answer the question.
+    prompt_parts = [
+        "You are a knowledgeable assistant.",
+        "Use the following context and previous cached chat history to answer the question.",
+        "----",
+        "Context:",
+        f"{rag_context}",
+        "----",
+        f"Cached Chat History: {cached_chat_history}",
+        "(If the chat history is empty, just ignore it)",
+        "----",
+        f"Answer the question: {user_query}"
+    ]
 
-    Context: {rag_context}
-
-    Cached Chat History: {cached_chat_history}
-    (If the chat history is empty, just ignore it)
-
-    Question: {user_query}
-
-    """
+    return "\n\n".join(prompt_parts) + "\n\n"
 
 def cache_query_answer_template(
-    rag_query: str,
+    user_query: str,
     llm_answer: str
 ) -> str:
     """
@@ -55,16 +70,19 @@ def cache_query_answer_template(
         The cached query and answer with a timestamp.
     """
     time_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return f"""The following is a previous query and its answer at the following time: {time_stamp}.
+    
+    cache_parts = [
+        f"The following is a previous user query and your answer at the following time: {time_stamp}.",
+        "User's previous query:",
+        f"{user_query}",
+        "Your previous answer:",
+        f"{llm_answer}"
+    ]
+    
+    return "\n\n".join(cache_parts) + "\n\n"
 
-    Cached Query: {rag_query}
 
-    Your previous answer: {llm_answer}
-
-    """
-
-
-def main(LLM_EMBEDDING_MODEL:str):
+def main():
     """
     Interactive RAG query system that allows continuous questioning.
     """
@@ -95,9 +113,10 @@ def main(LLM_EMBEDDING_MODEL:str):
     # Initialize the embedding vector database
     print("Loading embedding database...")
     try:
-        # this is hard coded for the embedding model used
-        # need to be consistent with the one used in create_embedding_db.py
-        embeddings = OllamaEmbeddings(model=LLM_EMBEDDING_MODEL)
+        # this is using the embedding_model function from create_embedding_db.py
+        # since the embedding model needs to be consistent
+        # between the database creation and the query embedding
+        embeddings = embedding_model()
         chroma_db = Chroma(
             persist_directory=args.embedding_db_path,
             embedding_function=embeddings,
@@ -148,7 +167,7 @@ def main(LLM_EMBEDDING_MODEL:str):
                 # remove content that has score lower than 0.7
                 result_screen = []
                 for doc, score in result:
-                    if score >= 0.001:
+                    if score >= 0.7:
                         result_screen.append((doc, score))
 
                 if not result_screen:
@@ -201,5 +220,4 @@ def main(LLM_EMBEDDING_MODEL:str):
 
 
 if __name__ == "__main__":
-    LLM_EMBEDDING_MODEL = 'nomic-embed-text'
-    main(LLM_EMBEDDING_MODEL)
+    main()
